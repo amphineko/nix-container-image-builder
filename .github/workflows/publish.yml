@@ -42,22 +42,26 @@ jobs:
         env:
           IMAGE_NAME: ${{ matrix.image }}
       - name: Build and load Docker archive
-        run: ./build.sh "$FILE" --name "$IMAGE" --tag "$TAG" --output "dist/$IMAGE_NAME.docker.tar.gz" --load
+        run: ./build.sh "$FILE" --name "$IMAGE" --output "dist/$IMAGE_NAME.docker.tar.gz" --load
         env:
           FILE: ${{ matrix.file }}
           IMAGE_NAME: ${{ matrix.image }}
-          TAG: sha-${{ github.sha }}
-      - name: Test image runtime
-        run: bash "$TEST" "$IMAGE:$TAG"
+      - name: Read image version
+        run: |
+          version=$(python3 tools/docker-image-tag.py "dist/$IMAGE_NAME.docker.tar.gz" "$IMAGE")
+          [[ $version != latest ]] || { echo 'image description must use a version tag' >&2; exit 1; }
+          printf 'VERSION=%s\n' "$version" >> "$GITHUB_ENV"
         env:
-          TAG: sha-${{ github.sha }}
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Test image runtime
+        run: bash "$TEST" "$IMAGE:$VERSION"
+        env:
           TEST: ${{ matrix.test }}
       - name: Build OCI archive
-        run: ./build.sh "$FILE" --name "$IMAGE" --tag "$TAG" --format oci --output "dist/$IMAGE_NAME.oci.tar.gz"
+        run: ./build.sh "$FILE" --name "$IMAGE" --format oci --output "dist/$IMAGE_NAME.oci.tar.gz"
         env:
           FILE: ${{ matrix.file }}
           IMAGE_NAME: ${{ matrix.image }}
-          TAG: sha-${{ github.sha }}
       - name: Compare archive formats
         run: python3 tests/archives.py "dist/$IMAGE_NAME.docker.tar.gz" "dist/$IMAGE_NAME.oci.tar.gz"
         env:
@@ -68,8 +72,10 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish image
         run: |
-          docker push "$IMAGE:$TAG"
-          docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+          docker push "$IMAGE:$VERSION"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:$SHA_TAG"
+          docker push "$IMAGE:$SHA_TAG"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
           docker push "$IMAGE:latest"
         env:
-          TAG: sha-${{ github.sha }}
+          SHA_TAG: sha-${{ github.sha }}

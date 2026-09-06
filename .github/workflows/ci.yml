@@ -35,17 +35,24 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build and load Docker archive
-        run: ./build.sh "$FILE" --name "local/$IMAGE" --tag test --output "dist/$IMAGE.docker.tar.gz" --load
+        run: ./build.sh "$FILE" --name "local/$IMAGE" --output "dist/$IMAGE.docker.tar.gz" --load
         env:
           FILE: ${{ matrix.file }}
           IMAGE: ${{ matrix.image }}
+      - name: Read image version
+        run: |
+          version=$(python3 tools/docker-image-tag.py "dist/$IMAGE.docker.tar.gz" "local/$IMAGE")
+          [[ $version != latest ]] || { echo 'image description must use a version tag' >&2; exit 1; }
+          printf 'VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+        env:
+          IMAGE: ${{ matrix.image }}
       - name: Test image runtime
-        run: bash "$TEST" "local/$IMAGE:test"
+        run: bash "$TEST" "local/$IMAGE:$VERSION"
         env:
           IMAGE: ${{ matrix.image }}
           TEST: ${{ matrix.test }}
       - name: Build OCI archive
-        run: ./build.sh "$FILE" --name "local/$IMAGE" --tag test --format oci --output "dist/$IMAGE.oci.tar.gz"
+        run: ./build.sh "$FILE" --name "local/$IMAGE" --format oci --output "dist/$IMAGE.oci.tar.gz"
         env:
           FILE: ${{ matrix.file }}
           IMAGE: ${{ matrix.image }}

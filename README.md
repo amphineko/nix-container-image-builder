@@ -29,10 +29,12 @@ Each trusted `.nix` file receives the locked `pkgs` set and returns an attribute
 
 ```nix
 { pkgs }:
-{
+let
+  primary = pkgs.somePackage;
+in {
   name = "example";
-  tag = "latest";
-  contents = [ /* derivations */ ];
+  tag = primary.version;
+  contents = [ primary /* other derivations */ ];
   config = {
     Entrypoint = [ "/path/to/program" ];
     Cmd = [ /* arguments */ ];
@@ -45,7 +47,7 @@ Supported fields:
 | Field | Description |
 | --- | --- |
 | `name` | Required image name |
-| `tag` | Image tag; defaults to `latest` |
+| `tag` | Required image tag; normally the primary package version |
 | `contents` | Derivations merged into the image root |
 | `config` | OCI image configuration |
 | `extraCommands` | Commands that populate the final layer |
@@ -78,4 +80,4 @@ Review the lock-file change and rebuild the affected images.
 
 ## Automation
 
-GitHub Actions builds and tests every image matrix entry on pull requests. Updates to `master` repeat those checks and publish `sha-<commit>` and `latest` tags to `ghcr.io/<owner>/<repository>/<image>` using the repository's `GITHUB_TOKEN`.
+GitHub Actions builds and tests every image matrix entry on pull requests. Updates to `master` repeat those checks and publish the image description's version tag together with `sha-<commit>` and `latest` aliases to `ghcr.io/<owner>/<repository>/<image>` using the repository's `GITHUB_TOKEN`.
