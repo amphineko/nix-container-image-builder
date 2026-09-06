@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate command-line interface
+        run: bash tests/cli.sh
+
+  images:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: chrony
+            file: images/chrony.nix
+            test: tests/chrony.sh
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build and load Docker archive
+        run: ./build.sh "$FILE" --name "local/$IMAGE" --tag test --output "dist/$IMAGE.docker.tar.gz" --load
+        env:
+          FILE: ${{ matrix.file }}
+          IMAGE: ${{ matrix.image }}
+      - name: Test image runtime
+        run: bash "$TEST" "local/$IMAGE:test"
+        env:
+          IMAGE: ${{ matrix.image }}
+          TEST: ${{ matrix.test }}
+      - name: Build OCI archive
+        run: ./build.sh "$FILE" --name "local/$IMAGE" --tag test --format oci --output "dist/$IMAGE.oci.tar.gz"
+        env:
+          FILE: ${{ matrix.file }}
+          IMAGE: ${{ matrix.image }}
+      - name: Compare archive formats
+        run: python3 tests/archives.py "dist/$IMAGE.docker.tar.gz" "dist/$IMAGE.oci.tar.gz"
+        env:
+          IMAGE: ${{ matrix.image }}

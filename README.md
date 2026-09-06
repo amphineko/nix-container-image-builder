@@ -75,3 +75,7 @@ nix --extra-experimental-features 'nix-command flakes' flake update nixpkgs
 ```
 
 Review the lock-file change and rebuild the affected images.
+
+## Automation
+
+GitHub Actions builds and tests every image matrix entry on pull requests. Updates to `master` repeat those checks and publish `sha-<commit>` and `latest` tags to `ghcr.io/<owner>/<repository>/<image>` using the repository's `GITHUB_TOKEN`.
