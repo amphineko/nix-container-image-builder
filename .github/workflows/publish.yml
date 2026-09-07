@@ -1,0 +1,81 @@
+name: Publish images
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate command-line interface
+        run: bash tests/cli.sh
+
+  images:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: chrony
+            file: images/chrony.nix
+            test: tests/chrony.sh
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set image reference
+        run: printf 'IMAGE=ghcr.io/%s/%s\n' "${GITHUB_REPOSITORY,,}" "$IMAGE_NAME" >> "$GITHUB_ENV"
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Build and load Docker archive
+        run: ./build.sh "$FILE" --name "$IMAGE" --output "dist/$IMAGE_NAME.docker.tar.gz" --load
+        env:
+          FILE: ${{ matrix.file }}
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Read image version
+        run: |
+          version=$(python3 tools/docker-image-tag.py "dist/$IMAGE_NAME.docker.tar.gz" "$IMAGE")
+          [[ $version != latest ]] || { echo 'image description must use a version tag' >&2; exit 1; }
+          printf 'VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Test image runtime
+        run: bash "$TEST" "$IMAGE:$VERSION"
+        env:
+          TEST: ${{ matrix.test }}
+      - name: Build OCI archive
+        run: ./build.sh "$FILE" --name "$IMAGE" --format oci --output "dist/$IMAGE_NAME.oci.tar.gz"
+        env:
+          FILE: ${{ matrix.file }}
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Compare archive formats
+        run: python3 tests/archives.py "dist/$IMAGE_NAME.docker.tar.gz" "dist/$IMAGE_NAME.oci.tar.gz"
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+      - name: Log in to GHCR
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish image
+        run: |
+          docker push "$IMAGE:$VERSION"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:$SHA_TAG"
+          docker push "$IMAGE:$SHA_TAG"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+        env:
+          SHA_TAG: sha-${{ github.sha }}

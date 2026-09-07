@@ -10,7 +10,7 @@ let
   # Destructuring rejects unknown top-level fields instead of ignoring typos.
   makeImage = {
     name,
-    tag ? "latest",
+    tag,
     contents ? [],
     config ? {},
     extraCommands ? "",
@@ -45,7 +45,7 @@ pkgs.runCommand "oci-image.tar.gz" {
   # No daemon or registry credentials are needed for a local conversion.
   skopeo --insecure-policy copy --format oci \
     docker-archive:${dockerImage} \
-    oci:layout:${pkgs.lib.escapeShellArg (resolved.tag or "latest")}
+    oci:layout:${pkgs.lib.escapeShellArg resolved.tag}
   # Normalize the outer archive too; Nix fixes the inner image timestamp.
   tar --sort=name --mtime=@1 --owner=0 --group=0 --numeric-owner \
     -C layout -cf - . | gzip -n > "$out"
