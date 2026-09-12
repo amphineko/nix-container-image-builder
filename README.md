@@ -68,7 +68,7 @@ The image archive is streamed from the container into a temporary host file and 
 
 Docker volumes persist the Nix store, its database, and fetcher metadata across builds. Cache names include a schema version and platform selection so incompatible Nix runtimes cannot share a store. The first build seeds `/nix` from the builder image; subsequent builds reuse downloaded and built paths.
 
-The cache is managed with standard `docker volume` commands. When changing the pinned Nix image, increment `cache_version` in `build.sh` to create a fresh store.
+The cache is managed with standard `docker volume` commands. When changing the pinned Nix image, increment `cache_version` in `nix/builder.env` to create a fresh store.
 
 Update nixpkgs with a local Nix installation:
 
@@ -81,3 +81,5 @@ Review the lock-file change and rebuild the affected images.
 ## Automation
 
 GitHub Actions builds and tests every image matrix entry on pull requests. Updates to `master` repeat those checks and publish the image description's version tag together with `sha-<commit>` and `latest` aliases to `ghcr.io/<owner>/<repository>/<image>` using the repository's `GITHUB_TOKEN`.
+
+A weekly workflow checks the pinned Nix builder and nixpkgs separately. It validates every image before opening or refreshing dependency pull requests, and can also be run manually from the Actions tab.

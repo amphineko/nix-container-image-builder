@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly nix_image='nixos/nix:2.31.2@sha256:29fc5fe207f159ceb0143c25c19c774062fee02ce5eda118f3067547b3054894'
-readonly cache_version='v1'
-
 usage() {
   cat <<'EOF'
 Usage: ./build.sh FILE.nix [OPTIONS]
@@ -35,6 +32,8 @@ require_value() {
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 readonly repo_dir
+# shellcheck source=nix/builder.env
+source "$repo_dir/nix/builder.env"
 
 input_arg='' image_name='' image_tag='' output_arg='' platform=''
 image_format='docker' load_image='false'

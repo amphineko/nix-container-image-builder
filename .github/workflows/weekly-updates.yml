@@ -1,0 +1,109 @@
+name: Weekly updates
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-updates
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: builder
+            branch: automation/nix-builder
+            commit: "chore(deps): update Nix builder"
+            title: "chore(deps): update Nix builder"
+          - kind: nixpkgs
+            branch: automation/nixpkgs
+            commit: "chore(deps): update nixpkgs and image packages"
+            title: "chore(deps): update nixpkgs and image packages"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Read current image versions
+        run: tools/image-versions.sh > "$RUNNER_TEMP/versions-before.tsv"
+      - name: Check for updates
+        id: update
+        run: |
+          case "$UPDATE_KIND" in
+            builder)
+              python3 tools/update-nix-builder.py > "$RUNNER_TEMP/dependency-change.txt"
+              ;;
+            nixpkgs)
+              old_revision=$(jq -r .nodes.nixpkgs.locked.rev flake.lock)
+              tools/update-nixpkgs.sh
+              new_revision=$(jq -r .nodes.nixpkgs.locked.rev flake.lock)
+              printf 'nixpkgs: %s -> %s\n' "$old_revision" "$new_revision" > "$RUNNER_TEMP/dependency-change.txt"
+              ;;
+            *) exit 1 ;;
+          esac
+          if git diff --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          UPDATE_KIND: ${{ matrix.kind }}
+      - name: Read updated image versions
+        run: tools/image-versions.sh > "$RUNNER_TEMP/versions-after.tsv"
+      - name: Write update summary
+        run: |
+          {
+            printf '## %s update\n\n' "$UPDATE_KIND"
+            cat "$RUNNER_TEMP/dependency-change.txt"
+            printf '\n\n'
+            python3 tools/version-report.py \
+              "$RUNNER_TEMP/versions-before.tsv" \
+              "$RUNNER_TEMP/versions-after.tsv"
+          } | tee "$RUNNER_TEMP/update.md" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          UPDATE_KIND: ${{ matrix.kind }}
+      - name: Validate updates
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          bash tests/cli.sh
+          bash tests/images.sh
+      - name: Commit update
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add nix/builder.env flake.lock
+          git commit -m "$COMMIT_MESSAGE"
+          git push --force origin "HEAD:refs/heads/$UPDATE_BRANCH"
+        env:
+          COMMIT_MESSAGE: ${{ matrix.commit }}
+          UPDATE_BRANCH: ${{ matrix.branch }}
+      - name: Create or update pull request
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          {
+            cat "$RUNNER_TEMP/update.md"
+            printf '\n\nValidation: `bash tests/cli.sh` and `bash tests/images.sh`\n'
+          } > "$RUNNER_TEMP/pull-request.md"
+          number=$(gh pr list --head "$UPDATE_BRANCH" --base master --state open --json number --jq '.[0].number')
+          if [[ -n $number ]]; then
+            gh pr edit "$number" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md"
+          else
+            gh pr create --base master --head "$UPDATE_BRANCH" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ matrix.title }}
+          UPDATE_BRANCH: ${{ matrix.branch }}
