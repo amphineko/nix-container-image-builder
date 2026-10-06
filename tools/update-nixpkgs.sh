@@ -15,6 +15,7 @@ docker run --rm \
   --mount "type=bind,src=$repo_dir,dst=/src" \
   --workdir /src \
   "$nix_image" sh -eu -c '
-    nix --extra-experimental-features "nix-command flakes" flake update nixpkgs
+    nix --extra-experimental-features "nix-command flakes" \
+      flake update nixpkgs --flake path:/src
     chown "$1:$2" flake.lock
   ' sh "$uid" "$gid"
